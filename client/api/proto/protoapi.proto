@@ -1,0 +1,44 @@
+syntax = "proto3"; // Версия синтаксиса .proto файла
+
+option go_package = "internal/api;protoapi"; // Имя пакета
+
+// Для генерации использовалась команда
+// protoc -I api/proto --go_out=. --go-grpc_out=. api/proto/protoapi.proto
+
+// Объявление сервиса Random и поддерживаемых методов
+service Random {
+  // Для метода GetRandom сервер принимает сообщение
+  // RandomParams и возвращает сообщение RandomInt
+  rpc GetRandom(RandomParams) returns (RandomInt);
+  rpc GetDate(RequestDateTime) returns (DateTime);
+  rpc GetRandomPass(RequestPass) returns (RandomPass);
+}
+
+// Сообщение предназначено для установки параметров запроса
+message RandomParams {
+  int64 Seed = 1;
+  int64 Place = 2;
+}
+
+// Сообщение предназначено для для хранения случайного числа, которое генерируется сервером
+message RandomInt {
+  int64 Value = 1;
+}
+
+message DateTime {
+  string Value = 1;
+}
+
+message RequestDateTime {
+  string Value = 2;
+}
+
+message RequestPass {
+  int64 Seed = 1;
+  int64 Length = 8;
+}
+
+message RandomPass {
+  string Password = 1;
+}
+
