@@ -5,116 +5,92 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
-	"os"
 	"time"
 
 	"server/internal/api"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/reflection"
 )
 
-var min = 0
-var max = 100
+// Генерируем случайный пароль
+func genPassword(len int64) string {
+	var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+	b := make([]rune, len)
 
-func random(min, max int) int {
-	return rand.Intn(max-min) + min
-}
-
-// Extra function for creating secure random numbers
-//
-// func randomSecure(min, max int) int {
-// 	v, err := rand.Int(rand.Reader, big.NewInt(int64(max)))
-// 	if err != nil {
-// 		fmt.Println(err)
-// 		return min
-// 	}
-// 	fmt.Println("**", v, min, max)
-
-// 	return min + int(v.Uint64())
-// }
-
-func getString(len int64) string {
-	temp := ""
-	startChar := "!"
-	var i int64 = 1
-	for {
-		// For getting valid ASCII characters
-		myRand := random(0, 94)
-		newChar := string(startChar[0] + byte(myRand))
-		temp = temp + newChar
-		if i == len {
-			break
-		}
-		i++
+	for i := range b {
+		b[i] = letters[rand.Intn(int(len))]
 	}
-	return temp
+	return string(b)
 }
 
+// RandomServer - структура, названная в честь сервиса gRPC.
+// Будет реализовывать интерфейс, требуемый сервером gRPC.
 type RandomServer struct {
-	protoapi.UnimplementedRandomServer
+	api.UnimplementedRandomServer
 }
 
-func (RandomServer) GetDate(ctx context.Context, r *protoapi.RequestDateTime) (*protoapi.DateTime, error) {
-	currentTime := time.Now()
-	response := &protoapi.DateTime{
-		Value: currentTime.String(),
+// GetDate - метод, который возвращает клиенту дату и время сервера
+// Принимает context.Context и указатель на сообщение RequestDateTime. Возвращает сообщение DateTime
+func (RandomServer) GetDate(ctx context.Context, r *api.RequestDateTime) (*api.DateTime, error) {
+	t := time.Now()
+
+	// Форматируем время в iso8601
+	currentTime := fmt.Sprintf(
+		"%d-%02d-%02dT%02d:%02d:%02dZ", t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(),
+	)
+
+	response := &api.DateTime{
+		Value: currentTime,
 	}
 
 	return response, nil
 }
 
-func (RandomServer) GetRandom(ctx context.Context, r *protoapi.RandomParams) (*protoapi.RandomInt, error) {
-	rand.Seed(r.GetSeed())
-	place := r.GetPlace()
-	temp := random(min, max)
-	for {
-		place--
-		if place <= 0 {
-			break
-		}
-		temp = random(min, max)
-	}
+// GetRandom - метод, который возвращает клиенту рандомное число
+func (RandomServer) GetRandom(ctx context.Context, r *api.RandomParams) (*api.RandomInt, error) {
+	// Переменные newSource и newRand используются для генерации случайного числа
+	newSource := rand.NewSource(time.Now().UnixNano())
+	newRand := rand.New(newSource)
 
-	response := &protoapi.RandomInt{
-		Value: int64(temp),
+	// На основе клиенского сообщения генерируется случайное число
+	response := &api.RandomInt{
+		Value: int64(newRand.Intn(int(r.GetValue()))),
 	}
 
 	return response, nil
 }
 
-func (RandomServer) GetRandomPass(ctx context.Context, r *protoapi.RequestPass) (*protoapi.RandomPass, error) {
-	rand.Seed(r.GetSeed())
-	temp := getString(r.GetLength())
+func (RandomServer) GetRandomPass(ctx context.Context, r *api.RequestPass) (*api.RandomPass, error) {
+	temp := genPassword(r.GetLength()) // Генерируем случайный пароль
 
-	response := &protoapi.RandomPass{
+	response := &api.RandomPass{
 		Password: temp,
 	}
 
 	return response, nil
 }
 
-var port = ":8080"
-
 func main() {
-	if len(os.Args) == 1 {
-		fmt.Println("Using default port:", port)
-	} else {
-		port = os.Args[1]
-	}
-
-	server := grpc.NewServer()
+	// Объявляем структуру Random реализующую наши методы
 	var randomServer RandomServer
-	protoapi.RegisterRandomServer(server, randomServer)
 
-	reflection.Register(server)
+	// Создаем новый gRPC сервер
+	server := grpc.NewServer()
 
-	listen, err := net.Listen("tcp", port)
+	// Регистрируем новый сервер и структуру
+	api.RegisterRandomServer(server, randomServer)
+
+	// Слушаем сеть по указанному адресу
+	listen, err := net.Listen("tcp", ":8080")
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
 
 	fmt.Println("Serving requests...")
-	server.Serve(listen)
+	err = server.Serve(listen) // Запускаем gRPC сервер
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
 }

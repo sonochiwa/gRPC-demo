@@ -1,89 +1,87 @@
 package main
 
 import (
+	"client/internal/api"
 	"context"
 	"fmt"
 	"math/rand"
-	"os"
 	"time"
 
-	"client/internal/api"
-
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
-var port = ":8080"
-
-func AskingDateTime(ctx context.Context, m protoapi.RandomClient) (*protoapi.DateTime, error) {
-	request := &protoapi.RequestDateTime{
+// AskingDateTime - запрашивает время у удаленного сервера
+// Сигнатура функции должна содержать параметры context.Context и Client нашего api сервиса - RandomClient
+// Далее могут идти параметры из сигнатуры rpc метода
+func AskingDateTime(ctx context.Context, m api.RandomClient) (*api.DateTime, error) {
+	// Передаем клиентские данные для обращения к методу удаленного сервера GetDate
+	// В данном случае это заглушка ввиде Value
+	request := &api.RequestDateTime{
 		Value: "Please send me the date and time",
 	}
 
+	// Запрашиваем дату и возвращаем ее
 	return m.GetDate(ctx, request)
 }
 
-func AskPass(ctx context.Context, m protoapi.RandomClient, seed int64, length int64) (*protoapi.RandomPass, error) {
-	request := &protoapi.RequestPass{
-		Seed:   seed,
+// AskRandom - запрашивает рандомное число у удаленного сервера
+func AskRandom(ctx context.Context, m api.RandomClient, value int64) (*api.RandomInt, error) {
+	request := &api.RandomParams{
+		Value: value,
+	}
+
+	return m.GetRandom(ctx, request)
+}
+
+// AskPass - запрашивает пароль у удаленного сервера
+func AskPass(ctx context.Context, m api.RandomClient, length int64) (*api.RandomPass, error) {
+	request := &api.RequestPass{
 		Length: length,
 	}
 
 	return m.GetRandomPass(ctx, request)
 }
 
-func AskRandom(ctx context.Context, m protoapi.RandomClient, seed int64, place int64) (*protoapi.RandomInt, error) {
-	request := &protoapi.RandomParams{
-		Seed:  seed,
-		Place: place,
-	}
-
-	return m.GetRandom(ctx, request)
-}
-
 func main() {
-	if len(os.Args) == 1 {
-		fmt.Println("Using default port:", port)
-	} else {
-		port = os.Args[1]
-	}
-
-	conn, err := grpc.Dial(port, grpc.WithInsecure())
+	// Создаем соединение с GRPC сервером
+	conn, err := grpc.Dial(":8080", grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		fmt.Println("Dial:", err)
 		return
 	}
 
-	rand.Seed(time.Now().Unix())
-	seed := int64(rand.Intn(100))
+	// Генерируем случайное число
+	newSource := rand.NewSource(time.Now().UnixNano())
+	newRand := rand.New(newSource)
 
-	client := protoapi.NewRandomClient(conn)
+	client := api.NewRandomClient(conn) // Создаем экземпляр клиента сервиса
+
 	r, err := AskingDateTime(context.Background(), client)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
-	fmt.Println("Server Date and Time:", r.Value)
+	fmt.Println("Server timestamp:", r.Value)
 
-	length := int64(rand.Intn(20))
-	p, err := AskPass(context.Background(), client, 100, length+1)
+	i1, err := AskRandom(context.Background(), client, int64(newRand.Intn(100))+1)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	fmt.Println("Random Integer 1:", i1.Value)
+
+	i2, err := AskRandom(context.Background(), client, int64(newRand.Intn(100)))
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	fmt.Println("Random Integer 2:", i2.Value)
+
+	p, err := AskPass(context.Background(), client, int64(newRand.Intn(32)+8))
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
 	fmt.Println("Random Password:", p.Password)
-
-	place := int64(rand.Intn(100))
-	i, err := AskRandom(context.Background(), client, seed, place)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-	fmt.Println("Random Integer 1:", i.Value)
-
-	k, err := AskRandom(context.Background(), client, seed, place-1)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-	fmt.Println("Random Integer 2:", k.Value)
 }
